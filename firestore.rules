@@ -1,0 +1,591 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL PRIMITIVE HELPERS ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isBoundedStringList(lst, maxLen) {
+      return lst is list && lst.size() <= maxLen && (lst.size() == 0 || lst[0] is string);
+    }
+
+    // --- WORKSPACE ROLE HELPERS (Trusted member doc lookup, never client claims) ---
+    function memberPath(workspaceId, uid) {
+      return /databases/$(database)/documents/workspaces/$(workspaceId)/members/$(uid);
+    }
+
+    function workspacePath(workspaceId) {
+      return /databases/$(database)/documents/workspaces/$(workspaceId);
+    }
+
+    function memberRole(workspaceId) {
+      return get(memberPath(workspaceId, request.auth.uid)).data;
+    }
+
+    function isActiveMember(workspaceId) {
+      return isSignedIn() &&
+        exists(memberPath(workspaceId, request.auth.uid)) &&
+        memberRole(workspaceId).status == 'ACTIVE';
+    }
+
+    function hasRole(workspaceId, allowedRoles) {
+      return isActiveMember(workspaceId) &&
+        memberRole(workspaceId).role in allowedRoles;
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      return hasRole(workspaceId, ['OWNER']);
+    }
+
+    function canEditVocab(workspaceId) {
+      return hasRole(workspaceId, ['OWNER', 'EDITOR']);
+    }
+
+    function canReview(workspaceId) {
+      return hasRole(workspaceId, ['OWNER', 'REVIEWER']);
+    }
+
+    function canImportToWorkspace(workspaceId) {
+      return isWorkspaceOwner(workspaceId) || (
+        hasRole(workspaceId, ['EDITOR']) &&
+        exists(workspacePath(workspaceId)) &&
+        get(workspacePath(workspaceId)).data.allowEditorImport == true
+      );
+    }
+
+    // --- VALIDATION HELPERS ---
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        (!('themePreference' in data) || data.themePreference in ['SYSTEM', 'LIGHT', 'DARK']) &&
+        (!('aiEnabled' in data) || data.aiEnabled is bool) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidWorkspace(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.memberUids.size() >= 1 &&
+        data.allowViewerExport is bool &&
+        data.allowEditorImport is bool &&
+        data.nextVocabSequence is int && data.nextVocabSequence >= 1 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidMember(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
+        (!('email' in data) || (data.email is string && data.email.size() <= 160)) &&
+        data.role in ['OWNER', 'EDITOR', 'REVIEWER', 'VIEWER'] &&
+        data.status in ['ACTIVE', 'SUSPENDED'] &&
+        data.invitedBy is string && data.invitedBy.size() >= 1 && data.invitedBy.size() <= 128 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidWord(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.humanId is string && data.humanId.size() >= 4 && data.humanId.size() <= 32 &&
+        data.word is string && data.word.size() >= 1 && data.word.size() <= 120 &&
+        data.normalizedWord is string && data.normalizedWord.size() >= 1 && data.normalizedWord.size() <= 120 &&
+        data.partOfSpeech is string && data.partOfSpeech.size() >= 1 && data.partOfSpeech.size() <= 40 &&
+        data.primaryMeaning is string && data.primaryMeaning.size() >= 1 && data.primaryMeaning.size() <= 300 &&
+        (!('englishDefinition' in data) || (data.englishDefinition is string && data.englishDefinition.size() <= 1000)) &&
+        (!('arabicExplanation' in data) || (data.arabicExplanation is string && data.arabicExplanation.size() <= 1500)) &&
+        (!('phoneticText' in data) || (data.phoneticText is string && data.phoneticText.size() <= 120)) &&
+        (!('exampleSentences' in data) || isBoundedStringList(data.exampleSentences, 20)) &&
+        (!('meanings' in data) || (data.meanings is list && data.meanings.size() <= 30)) &&
+        (!('synonyms' in data) || (data.synonyms is list && data.synonyms.size() <= 30)) &&
+        (!('antonyms' in data) || (data.antonyms is list && data.antonyms.size() <= 30)) &&
+        (!('derivatives' in data) || (data.derivatives is list && data.derivatives.size() <= 30)) &&
+        (!('expressions' in data) || (data.expressions is list && data.expressions.size() <= 30)) &&
+        (!('notes' in data) || (data.notes is list && data.notes.size() <= 30)) &&
+        data.version is int && data.version >= 1 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        (!('deletedAt' in data) || data.deletedAt is int) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidBook(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        (!('publisher' in data) || (data.publisher is string && data.publisher.size() <= 120)) &&
+        (!('editionOrYear' in data) || (data.editionOrYear is string && data.editionOrYear.size() <= 60)) &&
+        (!('grade' in data) || (data.grade is string && data.grade.size() <= 60)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        data.version is int && data.version >= 1 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidWordLocation(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.wordId is string && data.wordId.size() >= 1 && data.wordId.size() <= 128 &&
+        data.bookId is string && data.bookId.size() >= 1 && data.bookId.size() <= 128 &&
+        data.bookName is string && data.bookName.size() >= 1 && data.bookName.size() <= 160 &&
+        (!('publisher' in data) || (data.publisher is string && data.publisher.size() <= 120)) &&
+        (!('editionOrYear' in data) || (data.editionOrYear is string && data.editionOrYear.size() <= 60)) &&
+        (!('unit' in data) || (data.unit is string && data.unit.size() <= 80)) &&
+        (!('lesson' in data) || (data.lesson is string && data.lesson.size() <= 80)) &&
+        (!('pageNumber' in data) || (data.pageNumber is string && data.pageNumber.size() <= 30)) &&
+        (!('exerciseNumber' in data) || (data.exerciseNumber is string && data.exerciseNumber.size() <= 40)) &&
+        (!('section' in data) || (data.section is string && data.section.size() <= 80)) &&
+        (!('quotation' in data) || (data.quotation is string && data.quotation.size() <= 500)) &&
+        (!('sourceType' in data) || (data.sourceType is string && data.sourceType.size() <= 60)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 500)) &&
+        data.version is int && data.version >= 1 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCurriculumEntry(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.wordId is string && data.wordId.size() >= 1 && data.wordId.size() <= 128 &&
+        data.entryType in ['OFFICIAL_CURRICULUM', 'USER_OBSERVATION'] &&
+        data.verificationStatus in ['VERIFIED_OFFICIAL', 'PENDING_REVIEW', 'PERSONAL_NOTE', 'UNVERIFIED'] &&
+        // Never allow a user observation to be labeled as verified official curriculum
+        !(data.entryType == 'USER_OBSERVATION' && data.verificationStatus == 'VERIFIED_OFFICIAL') &&
+        (!('curriculumDistinction' in data) || (data.curriculumDistinction is string && data.curriculumDistinction.size() <= 400)) &&
+        (!('importantExamNotes' in data) || (data.importantExamNotes is string && data.importantExamNotes.size() <= 600)) &&
+        (!('commonExamPatterns' in data) || (data.commonExamPatterns is string && data.commonExamPatterns.size() <= 600)) &&
+        (!('teacherNotes' in data) || (data.teacherNotes is string && data.teacherNotes.size() <= 600)) &&
+        (!('relatedGrammarRules' in data) || (data.relatedGrammarRules is string && data.relatedGrammarRules.size() <= 600)) &&
+        (!('grade' in data) || (data.grade is string && data.grade.size() <= 60)) &&
+        (!('academicYear' in data) || (data.academicYear is string && data.academicYear.size() <= 40)) &&
+        (!('unit' in data) || (data.unit is string && data.unit.size() <= 80)) &&
+        (!('lesson' in data) || (data.lesson is string && data.lesson.size() <= 80)) &&
+        (!('source' in data) || (data.source is string && data.source.size() <= 160)) &&
+        data.version is int && data.version >= 1 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidReviewQueueItem(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.targetWordId is string && data.targetWordId.size() >= 1 && data.targetWordId.size() <= 128 &&
+        data.targetWordText is string && data.targetWordText.size() >= 1 && data.targetWordText.size() <= 120 &&
+        data.sourceType in ['AI_SUGGESTION', 'IMPORT_PROPOSAL'] &&
+        data.suggestionType is string && data.suggestionType.size() >= 1 && data.suggestionType.size() <= 60 &&
+        data.proposedPayload is string && data.proposedPayload.size() >= 1 && data.proposedPayload.size() <= 4000 &&
+        data.summaryArabic is string && data.summaryArabic.size() >= 1 && data.summaryArabic.size() <= 500 &&
+        data.aiGenerated is bool &&
+        data.verified is bool &&
+        // AI-generated items can never be marked verified directly by submitter
+        !(data.aiGenerated == true && data.verified == true && data.status == 'PENDING') &&
+        data.status in ['PENDING', 'APPROVED', 'REJECTED'] &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        (!('reviewedBy' in data) || (data.reviewedBy is string && data.reviewedBy.size() <= 128)) &&
+        (!('reviewNotes' in data) || (data.reviewNotes is string && data.reviewNotes.size() <= 500)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidImportJob(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+        data.sourceFormat is string && data.sourceFormat.size() >= 1 && data.sourceFormat.size() <= 40 &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        (!('userName' in data) || (data.userName is string && data.userName.size() <= 100)) &&
+        data.totalRows is int && data.totalRows >= 0 &&
+        (!('createdCount' in data) || (data.createdCount is int && data.createdCount >= 0)) &&
+        (!('updatedCount' in data) || (data.updatedCount is int && data.updatedCount >= 0)) &&
+        (!('mergedCount' in data) || (data.mergedCount is int && data.mergedCount >= 0)) &&
+        (!('skippedCount' in data) || (data.skippedCount is int && data.skippedCount >= 0)) &&
+        (!('errorCount' in data) || (data.errorCount is int && data.errorCount >= 0)) &&
+        data.status is string && data.status.size() >= 1 && data.status.size() <= 40 &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidConflictRecord(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.wordId is string && data.wordId.size() >= 1 && data.wordId.size() <= 128 &&
+        data.humanId is string && data.humanId.size() >= 1 && data.humanId.size() <= 32 &&
+        data.wordText is string && data.wordText.size() >= 1 && data.wordText.size() <= 120 &&
+        data.localVersion is int && data.localVersion >= 1 &&
+        data.remoteVersion is int && data.remoteVersion >= 1 &&
+        isBoundedStringList(data.conflictingFields, 30) &&
+        data.status in ['OPEN', 'RESOLVED'] &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        (!('resolvedBy' in data) || (data.resolvedBy is string && data.resolvedBy.size() <= 128)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAuditLog(data) {
+      return data.workspaceId is string && data.workspaceId.size() >= 1 && data.workspaceId.size() <= 128 &&
+        isBoundedStringList(data.memberUids, 50) &&
+        data.actorUserId is string && data.actorUserId.size() >= 1 && data.actorUserId.size() <= 128 &&
+        data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 100 &&
+        data.actorRole in ['OWNER', 'EDITOR', 'REVIEWER', 'VIEWER'] &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 60 &&
+        data.entityType is string && data.entityType.size() >= 1 && data.entityType.size() <= 60 &&
+        data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 128 &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 500 &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    // --- USER PROFILE COLLECTION (PII isolated to owner) ---
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isSignedIn() && isValidId(userId) &&
+        request.auth.uid == userId &&
+        incoming().userId == request.auth.uid &&
+        incoming().keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'displayName', 'themePreference', 'aiEnabled', 'createdAt', 'updatedAt']) &&
+        isValidUserProfile(incoming());
+      allow update: if isSignedIn() && isValidId(userId) &&
+        request.auth.uid == userId &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        isValidUserProfile(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'themePreference', 'aiEnabled', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    // --- WORKSPACES ---
+    match /workspaces/{workspaceId} {
+      allow get: if isSignedIn() && isValidId(workspaceId) && request.auth.uid in existing().memberUids;
+      allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+      allow create: if isSignedIn() && isValidId(workspaceId) &&
+        incoming().ownerId == request.auth.uid &&
+        request.auth.uid in incoming().memberUids &&
+        incoming().keys().hasAll(['name', 'ownerId', 'memberUids', 'allowViewerExport', 'allowEditorImport', 'nextVocabSequence', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['name', 'description', 'ownerId', 'memberUids', 'allowViewerExport', 'allowEditorImport', 'nextVocabSequence', 'createdAt', 'updatedAt']) &&
+        isValidWorkspace(incoming());
+
+      allow update: if isSignedIn() && isValidId(workspaceId) &&
+        isValidWorkspace(incoming()) &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt && (
+          // Owner can update settings, members list, or sequence
+          (isWorkspaceOwner(workspaceId) &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'memberUids', 'allowViewerExport', 'allowEditorImport', 'nextVocabSequence', 'updatedAt'])) ||
+          // Editors can increment nextVocabSequence when creating words
+          (canEditVocab(workspaceId) &&
+            incoming().nextVocabSequence >= existing().nextVocabSequence &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['nextVocabSequence', 'updatedAt']))
+        );
+
+      allow delete: if isSignedIn() && isValidId(workspaceId) && isWorkspaceOwner(workspaceId);
+
+      // --- WORKSPACE MEMBERS (Trusted RBAC, zero self-escalation) ---
+      match /members/{memberId} {
+        // PII isolation: only self or workspace owner can get full member doc (email)
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          (request.auth.uid == memberId || isWorkspaceOwner(workspaceId));
+
+        // Zero get() in list: query must filter by userId == uid OR ownerId == uid
+        allow list: if isSignedIn() &&
+          (resource.data.userId == request.auth.uid || resource.data.ownerId == request.auth.uid);
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().userId == memberId &&
+          incoming().keys().hasAll(['workspaceId', 'ownerId', 'userId', 'displayName', 'role', 'status', 'invitedBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'ownerId', 'userId', 'displayName', 'email', 'role', 'status', 'invitedBy', 'createdAt', 'updatedAt']) &&
+          isValidMember(incoming()) && (
+            // Bootstrap creator as OWNER atomically with workspace creation
+            (memberId == request.auth.uid &&
+             incoming().ownerId == request.auth.uid &&
+             incoming().role == 'OWNER' &&
+             incoming().status == 'ACTIVE' &&
+             incoming().invitedBy == request.auth.uid &&
+             getAfter(workspacePath(workspaceId)).data.ownerId == request.auth.uid) ||
+            // Existing workspace OWNER inviting another member
+            (isWorkspaceOwner(workspaceId) &&
+             incoming().invitedBy == request.auth.uid &&
+             incoming().ownerId == get(workspacePath(workspaceId)).data.ownerId &&
+             incoming().role != 'OWNER')
+          );
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          isWorkspaceOwner(workspaceId) &&
+          isValidMember(incoming()) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().ownerId == existing().ownerId &&
+          incoming().userId == existing().userId &&
+          incoming().invitedBy == existing().invitedBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'role', 'status', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(memberId) &&
+          isWorkspaceOwner(workspaceId) && memberId != request.auth.uid;
+      }
+
+      // --- VOCABULARY WORDS ---
+      match /words/{wordId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(wordId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(wordId) &&
+          canEditVocab(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == 1 &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'humanId', 'word', 'normalizedWord', 'partOfSpeech', 'primaryMeaning', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'humanId', 'word', 'normalizedWord', 'partOfSpeech', 'primaryMeaning', 'englishDefinition', 'arabicExplanation', 'phoneticText', 'exampleSentences', 'meanings', 'synonyms', 'antonyms', 'derivatives', 'expressions', 'notes', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt', 'deletedAt']) &&
+          isValidWord(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(wordId) &&
+          canEditVocab(workspaceId) &&
+          isValidWord(incoming()) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().humanId == existing().humanId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == existing().version + 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'memberUids', 'word', 'normalizedWord', 'partOfSpeech', 'primaryMeaning',
+            'englishDefinition', 'arabicExplanation', 'phoneticText', 'exampleSentences',
+            'meanings', 'synonyms', 'antonyms', 'derivatives', 'expressions', 'notes',
+            'version', 'updatedBy', 'updatedAt', 'deletedAt'
+          ]);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(wordId) &&
+          isWorkspaceOwner(workspaceId);
+      }
+
+      // --- BOOKS ---
+      match /books/{bookId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(bookId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(bookId) &&
+          isWorkspaceOwner(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == 1 &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'title', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'title', 'publisher', 'editionOrYear', 'grade', 'notes', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          isValidBook(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(bookId) &&
+          isWorkspaceOwner(workspaceId) &&
+          isValidBook(incoming()) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == existing().version + 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'title', 'publisher', 'editionOrYear', 'grade', 'notes', 'version', 'updatedBy', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(bookId) &&
+          isWorkspaceOwner(workspaceId);
+      }
+
+      // --- WORD LOCATIONS ---
+      match /wordLocations/{locationId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(locationId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(locationId) &&
+          canEditVocab(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == 1 &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'wordId', 'bookId', 'bookName', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'wordId', 'bookId', 'bookName', 'publisher', 'editionOrYear', 'unit', 'lesson', 'pageNumber', 'exerciseNumber', 'section', 'quotation', 'sourceType', 'notes', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          isValidWordLocation(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(locationId) &&
+          canEditVocab(workspaceId) &&
+          isValidWordLocation(incoming()) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().wordId == existing().wordId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == existing().version + 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'bookId', 'bookName', 'publisher', 'editionOrYear', 'unit', 'lesson', 'pageNumber', 'exerciseNumber', 'section', 'quotation', 'sourceType', 'notes', 'version', 'updatedBy', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(locationId) &&
+          canEditVocab(workspaceId);
+      }
+
+      // --- CURRICULUM ENTRIES ---
+      match /curriculumEntries/{entryId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(entryId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(entryId) &&
+          canEditVocab(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == 1 &&
+          // Only OWNER can mark official curriculum verified
+          (incoming().entryType == 'USER_OBSERVATION' || isWorkspaceOwner(workspaceId)) &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'wordId', 'entryType', 'verificationStatus', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'wordId', 'entryType', 'curriculumDistinction', 'importantExamNotes', 'commonExamPatterns', 'teacherNotes', 'relatedGrammarRules', 'grade', 'academicYear', 'unit', 'lesson', 'source', 'verificationStatus', 'version', 'createdBy', 'updatedBy', 'createdAt', 'updatedAt']) &&
+          isValidCurriculumEntry(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(entryId) &&
+          canEditVocab(workspaceId) &&
+          isValidCurriculumEntry(incoming()) &&
+          (incoming().entryType == 'USER_OBSERVATION' || isWorkspaceOwner(workspaceId)) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().wordId == existing().wordId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedBy == request.auth.uid &&
+          incoming().version == existing().version + 1 &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['memberUids', 'entryType', 'curriculumDistinction', 'importantExamNotes', 'commonExamPatterns', 'teacherNotes', 'relatedGrammarRules', 'grade', 'academicYear', 'unit', 'lesson', 'source', 'verificationStatus', 'version', 'updatedBy', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(entryId) &&
+          isWorkspaceOwner(workspaceId);
+      }
+
+      // --- REVIEW QUEUE (AI suggestions & import proposals) ---
+      match /reviewQueue/{itemId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(itemId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(itemId) &&
+          canEditVocab(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().status == 'PENDING' &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'targetWordId', 'targetWordText', 'sourceType', 'suggestionType', 'proposedPayload', 'summaryArabic', 'aiGenerated', 'verified', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'targetWordId', 'targetWordText', 'sourceType', 'suggestionType', 'proposedPayload', 'summaryArabic', 'aiGenerated', 'verified', 'status', 'createdBy', 'reviewedBy', 'reviewNotes', 'createdAt', 'updatedAt']) &&
+          isValidReviewQueueItem(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(itemId) &&
+          canReview(workspaceId) &&
+          existing().status == 'PENDING' &&
+          incoming().status in ['APPROVED', 'REJECTED'] &&
+          incoming().reviewedBy == request.auth.uid &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          isValidReviewQueueItem(incoming()) &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'verified', 'reviewedBy', 'reviewNotes', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(itemId) &&
+          isWorkspaceOwner(workspaceId);
+      }
+
+      // --- IMPORT JOBS ---
+      match /importJobs/{jobId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(jobId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(jobId) &&
+          canImportToWorkspace(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().userId == request.auth.uid &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'fileName', 'sourceFormat', 'userId', 'totalRows', 'status', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'fileName', 'sourceFormat', 'userId', 'userName', 'totalRows', 'createdCount', 'updatedCount', 'mergedCount', 'skippedCount', 'errorCount', 'status', 'createdAt', 'updatedAt']) &&
+          isValidImportJob(incoming());
+
+        allow update, delete: if isSignedIn() && isValidId(workspaceId) && isValidId(jobId) &&
+          isWorkspaceOwner(workspaceId) &&
+          (request.method == 'delete' || isValidImportJob(incoming()));
+      }
+
+      // --- CONFLICTS ---
+      match /conflicts/{conflictId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(conflictId) &&
+          request.auth.uid in existing().memberUids;
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(conflictId) &&
+          canEditVocab(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().status == 'OPEN' &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'wordId', 'humanId', 'wordText', 'localVersion', 'remoteVersion', 'conflictingFields', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'wordId', 'humanId', 'wordText', 'localVersion', 'remoteVersion', 'conflictingFields', 'status', 'createdBy', 'resolvedBy', 'createdAt', 'updatedAt']) &&
+          isValidConflictRecord(incoming());
+
+        allow update: if isSignedIn() && isValidId(workspaceId) && isValidId(conflictId) &&
+          canEditVocab(workspaceId) &&
+          existing().status == 'OPEN' &&
+          incoming().status == 'RESOLVED' &&
+          incoming().resolvedBy == request.auth.uid &&
+          isValidConflictRecord(incoming()) &&
+          incoming().workspaceId == existing().workspaceId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolvedBy', 'updatedAt']);
+
+        allow delete: if isSignedIn() && isValidId(workspaceId) && isValidId(conflictId) &&
+          isWorkspaceOwner(workspaceId);
+      }
+
+      // --- AUDIT LOGS (Immutable append-only) ---
+      match /auditLogs/{logId} {
+        allow get: if isSignedIn() && isValidId(workspaceId) && isValidId(logId) &&
+          isWorkspaceOwner(workspaceId);
+        allow list: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+
+        allow create: if isSignedIn() && isValidId(workspaceId) && isValidId(logId) &&
+          isActiveMember(workspaceId) &&
+          incoming().workspaceId == workspaceId &&
+          incoming().actorUserId == request.auth.uid &&
+          incoming().actorRole == memberRole(workspaceId).role &&
+          incoming().keys().hasAll(['workspaceId', 'memberUids', 'actorUserId', 'actorName', 'actorRole', 'action', 'entityType', 'entityId', 'summary', 'createdAt']) &&
+          incoming().keys().hasOnly(['workspaceId', 'memberUids', 'actorUserId', 'actorName', 'actorRole', 'action', 'entityType', 'entityId', 'summary', 'createdAt']) &&
+          isValidAuditLog(incoming());
+
+        allow update, delete: if false;
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">مفرداتي</string>
+    <string name="app_subtitle">إدارة المفردات الإنجليزية التعليمية</string>
+    <string name="sync_status_online">متصل ومتزامن</string>
+    <string name="sync_status_syncing">جاري المزامنة...</string>
+    <string name="sync_status_offline">غير متصل (العمل محلياً)</string>
+    <string name="sync_status_pending">تغييرات معلقة للمزامنة</string>
+    <string name="sync_status_error">خطأ في المزامنة</string>
+    <string name="sync_status_conflict">يوجد تعارض يتطلب المراجعة</string>
+    <string name="sync_status_unconfigured">السحابة غير مفعّلة (وضع التخزين المحلي)</string>
+    <string name="ai_placeholder_notice">تنبيه: ميزات الذكاء الاصطناعي التوليدي تتطلب تفعيل Firebase AI Logic. الاقتراحات الحالية نماذج تجريبية وتُحفظ في قائمة المراجعة دون نشر تلقائي.</string>
+</resources>

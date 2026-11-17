@@ -1,0 +1,292 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account metadata and preferences.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string" },
+        "themePreference": { "type": "string", "enum": ["SYSTEM", "LIGHT", "DARK"] },
+        "aiEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Collaborative vocabulary workspace.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "allowViewerExport": { "type": "boolean" },
+        "allowEditorImport": { "type": "boolean" },
+        "nextVocabSequence": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerId", "memberUids", "allowViewerExport", "allowEditorImport", "nextVocabSequence", "createdAt", "updatedAt"]
+    },
+    "WorkspaceMember": {
+      "title": "WorkspaceMember",
+      "description": "Trusted role membership record inside a workspace.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "userId": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["OWNER", "EDITOR", "REVIEWER", "VIEWER"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "SUSPENDED"] },
+        "invitedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "ownerId", "userId", "displayName", "role", "status", "invitedBy", "createdAt", "updatedAt"]
+    },
+    "Word": {
+      "title": "Word",
+      "description": "Vocabulary word record with permanent humanId, version, and embedded linguistic details.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "humanId": { "type": "string" },
+        "word": { "type": "string" },
+        "normalizedWord": { "type": "string" },
+        "partOfSpeech": { "type": "string" },
+        "primaryMeaning": { "type": "string" },
+        "englishDefinition": { "type": "string" },
+        "arabicExplanation": { "type": "string" },
+        "phoneticText": { "type": "string" },
+        "exampleSentences": { "type": "array" },
+        "meanings": { "type": "array" },
+        "synonyms": { "type": "array" },
+        "antonyms": { "type": "array" },
+        "derivatives": { "type": "array" },
+        "expressions": { "type": "array" },
+        "notes": { "type": "array" },
+        "version": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "deletedAt": { "type": "integer" }
+      },
+      "required": ["workspaceId", "memberUids", "humanId", "word", "normalizedWord", "partOfSpeech", "primaryMeaning", "version", "createdBy", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "Book": {
+      "title": "Book",
+      "description": "Textbook or educational reference source.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "title": { "type": "string" },
+        "publisher": { "type": "string" },
+        "editionOrYear": { "type": "string" },
+        "grade": { "type": "string" },
+        "notes": { "type": "string" },
+        "version": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "title", "version", "createdBy", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "WordLocation": {
+      "title": "WordLocation",
+      "description": "Book occurrence location for a vocabulary word.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "wordId": { "type": "string" },
+        "bookId": { "type": "string" },
+        "bookName": { "type": "string" },
+        "publisher": { "type": "string" },
+        "editionOrYear": { "type": "string" },
+        "unit": { "type": "string" },
+        "lesson": { "type": "string" },
+        "pageNumber": { "type": "string" },
+        "exerciseNumber": { "type": "string" },
+        "section": { "type": "string" },
+        "quotation": { "type": "string" },
+        "sourceType": { "type": "string" },
+        "notes": { "type": "string" },
+        "version": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "wordId", "bookId", "bookName", "version", "createdBy", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "CurriculumEntry": {
+      "title": "CurriculumEntry",
+      "description": "Official curriculum note or user-created educational observation.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "wordId": { "type": "string" },
+        "entryType": { "type": "string", "enum": ["OFFICIAL_CURRICULUM", "USER_OBSERVATION"] },
+        "curriculumDistinction": { "type": "string" },
+        "importantExamNotes": { "type": "string" },
+        "commonExamPatterns": { "type": "string" },
+        "teacherNotes": { "type": "string" },
+        "relatedGrammarRules": { "type": "string" },
+        "grade": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "unit": { "type": "string" },
+        "lesson": { "type": "string" },
+        "source": { "type": "string" },
+        "verificationStatus": { "type": "string", "enum": ["VERIFIED_OFFICIAL", "PENDING_REVIEW", "PERSONAL_NOTE", "UNVERIFIED"] },
+        "version": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "wordId", "entryType", "verificationStatus", "version", "createdBy", "updatedBy", "createdAt", "updatedAt"]
+    },
+    "ReviewQueueItem": {
+      "title": "ReviewQueueItem",
+      "description": "AI suggestion or proposed change awaiting reviewer approval.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "targetWordId": { "type": "string" },
+        "targetWordText": { "type": "string" },
+        "sourceType": { "type": "string", "enum": ["AI_SUGGESTION", "IMPORT_PROPOSAL"] },
+        "suggestionType": { "type": "string" },
+        "proposedPayload": { "type": "string" },
+        "summaryArabic": { "type": "string" },
+        "aiGenerated": { "type": "boolean" },
+        "verified": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "createdBy": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "reviewNotes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "targetWordId", "targetWordText", "sourceType", "suggestionType", "proposedPayload", "summaryArabic", "aiGenerated", "verified", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ImportJob": {
+      "title": "ImportJob",
+      "description": "Batch import log and summary.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "fileName": { "type": "string" },
+        "sourceFormat": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "totalRows": { "type": "integer" },
+        "createdCount": { "type": "integer" },
+        "updatedCount": { "type": "integer" },
+        "mergedCount": { "type": "integer" },
+        "skippedCount": { "type": "integer" },
+        "errorCount": { "type": "integer" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "fileName", "sourceFormat", "userId", "totalRows", "status", "createdAt", "updatedAt"]
+    },
+    "ConflictRecord": {
+      "title": "ConflictRecord",
+      "description": "Synchronization conflict preserved for manual resolution.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "wordId": { "type": "string" },
+        "humanId": { "type": "string" },
+        "wordText": { "type": "string" },
+        "localVersion": { "type": "integer" },
+        "remoteVersion": { "type": "integer" },
+        "conflictingFields": { "type": "array" },
+        "status": { "type": "string", "enum": ["OPEN", "RESOLVED"] },
+        "createdBy": { "type": "string" },
+        "resolvedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "wordId", "humanId", "wordText", "localVersion", "remoteVersion", "conflictingFields", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable workspace audit trail entry.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "actorUserId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "actorRole": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "summary": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "memberUids", "actorUserId", "actorName", "actorRole", "action", "entityType", "entityId", "summary", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile and preferences scoped to owner UID."
+    },
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Shared vocabulary workspace."
+    },
+    "/workspaces/{workspaceId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/WorkspaceMember" },
+      "description": "Trusted workspace role membership."
+    },
+    "/workspaces/{workspaceId}/words/{wordId}": {
+      "schema": { "$ref": "#/entities/Word" },
+      "description": "Vocabulary word records."
+    },
+    "/workspaces/{workspaceId}/books/{bookId}": {
+      "schema": { "$ref": "#/entities/Book" },
+      "description": "Books and educational references."
+    },
+    "/workspaces/{workspaceId}/wordLocations/{locationId}": {
+      "schema": { "$ref": "#/entities/WordLocation" },
+      "description": "Book page/unit/lesson occurrences for words."
+    },
+    "/workspaces/{workspaceId}/curriculumEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/CurriculumEntry" },
+      "description": "Official curriculum info and user observations."
+    },
+    "/workspaces/{workspaceId}/reviewQueue/{itemId}": {
+      "schema": { "$ref": "#/entities/ReviewQueueItem" },
+      "description": "AI suggestions and proposals awaiting review."
+    },
+    "/workspaces/{workspaceId}/importJobs/{jobId}": {
+      "schema": { "$ref": "#/entities/ImportJob" },
+      "description": "Batch import history."
+    },
+    "/workspaces/{workspaceId}/conflicts/{conflictId}": {
+      "schema": { "$ref": "#/entities/ConflictRecord" },
+      "description": "Synchronization conflicts requiring review."
+    },
+    "/workspaces/{workspaceId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable audit log entries."
+    }
+  }
+}
